@@ -1,0 +1,698 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HRF Ventral Stream — Young vs T2DM/Old Comparison — SIGGRAPH 2026</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body {
+  background:#030508; color:#cce8ff;
+  font-family:'SF Mono','Fira Code','Consolas',monospace;
+  overflow:hidden; display:flex; flex-direction:column; height:100vh;
+}
+
+/* ── WebGL area (top) ── */
+#webgl-area { flex:1; position:relative; overflow:hidden; min-height:0; }
+#webgl-area canvas { position:absolute; inset:0; display:block; }
+
+/* Centre divider */
+#divider {
+  position:absolute; top:0; bottom:0; left:50%; width:2px; z-index:10; pointer-events:none;
+  background:linear-gradient(to bottom, transparent 2%, rgba(80,160,255,0.30) 18%,
+    rgba(80,160,255,0.50) 50%, rgba(80,160,255,0.30) 82%, transparent 98%);
+}
+#divider-glow {
+  position:absolute; top:0; bottom:0; left:50%; width:14px; margin-left:-7px;
+  background:radial-gradient(ellipse at center, rgba(80,160,255,0.07) 0%, transparent 70%);
+  z-index:9; pointer-events:none;
+}
+
+/* Group labels */
+.group-label {
+  position:absolute; top:18px; z-index:20; pointer-events:none;
+}
+#label-young { left:22px; }
+#label-t2dm  { right:22px; text-align:right; }
+.group-label h2 {
+  font-size:12px; letter-spacing:3.5px; text-transform:uppercase; font-weight:700;
+}
+.group-label p { font-size:9px; color:rgba(150,195,255,0.38); letter-spacing:2px; margin-top:3px; }
+
+/* ROI t_peak readouts */
+.roi-chain {
+  position:absolute; bottom:22px; font-size:10px; letter-spacing:1.5px;
+  z-index:20; line-height:2.0; pointer-events:none;
+}
+#roi-young { left:18px; }
+#roi-t2dm  { right:18px; text-align:right; }
+.roi-chain .chain-val { display:flex; align-items:center; gap:5px; }
+#roi-t2dm .chain-val   { flex-direction:row-reverse; }
+
+/* Live intensity bars on canvas area */
+.live-panel {
+  position:absolute; top:50%; transform:translateY(-50%);
+  z-index:20; pointer-events:none; display:flex; flex-direction:column; gap:4px;
+}
+#live-young { right:calc(50% + 16px); align-items:flex-end; }
+#live-t2dm  { left:calc(50% + 16px);  align-items:flex-start; }
+.live-row { display:flex; align-items:center; gap:5px; font-size:9px; letter-spacing:1.5px; }
+.live-bar-wrap { width:60px; height:2px; background:rgba(80,160,255,0.12); border-radius:2px; overflow:hidden; }
+.live-bar { height:100%; border-radius:2px; transition:width 0.04s linear; }
+
+/* ── Bottom stats area ── */
+#stats-area {
+  height:210px; background:rgba(2,4,15,0.98);
+  border-top:1px solid rgba(80,160,255,0.15);
+  display:flex; flex-direction:column;
+  padding:10px 22px 10px; gap:7px; flex-shrink:0;
+}
+
+/* Controls bar */
+#controls {
+  display:flex; align-items:center; gap:14px; padding-bottom:2px;
+  border-bottom:1px solid rgba(80,160,255,0.08);
+}
+#sim-display {
+  font-size:18px; font-weight:700; color:#88ccff;
+  letter-spacing:2px; min-width:90px;
+}
+.ctrl-btn {
+  padding:5px 16px; border:1px solid rgba(80,160,255,0.22);
+  background:rgba(8,15,45,0.6); border-radius:6px;
+  color:#aaccff; font-size:11px; font-family:inherit;
+  cursor:pointer; letter-spacing:0.5px; transition:all 0.15s;
+}
+.ctrl-btn:hover { border-color:rgba(80,160,255,0.55); color:#fff; }
+.ctrl-btn.active { background:rgba(20,40,100,0.65); border-color:rgba(80,160,255,0.55); color:#88ccff; }
+.ctrl-btn.save-flash { background:rgba(0,200,80,0.2); border-color:rgba(0,200,80,0.55); color:#88ffaa; }
+.ctrl-lbl { font-size:10px; color:rgba(100,160,255,0.45); }
+input[type=range].sm {
+  width:80px; height:3px; -webkit-appearance:none; appearance:none;
+  background:rgba(80,160,255,0.20); border-radius:2px; outline:none;
+}
+input[type=range].sm::-webkit-slider-thumb {
+  -webkit-appearance:none; width:11px; height:11px;
+  border-radius:50%; background:#4da6ff; cursor:pointer;
+}
+.flex-spacer { flex:1; }
+.siggraph-tag { font-size:8.5px; color:rgba(70,120,255,0.28); letter-spacing:2px; white-space:nowrap; }
+
+/* Comparison table */
+#cmp-wrap { overflow:hidden; }
+#cmp-table {
+  display:grid;
+  grid-template-columns: 52px 110px 110px 84px 88px 88px 78px;
+  gap:0; font-size:10px;
+}
+.th {
+  color:rgba(90,150,255,0.50); text-transform:uppercase; letter-spacing:1.5px;
+  padding:3px 8px 5px; border-bottom:1px solid rgba(80,160,255,0.12);
+}
+.th.th-young { color:rgba(0,229,255,0.55); }
+.th.th-t2dm  { color:rgba(255,140,0,0.55); }
+.td { padding:3px 8px; }
+.td-roi  { color:rgba(140,185,255,0.65); font-weight:700; letter-spacing:1px; }
+.td-y    { color:#00E5FF; }
+.td-t    { color:#FF8C00; }
+.td-dt   { color:rgba(180,210,255,0.55); }
+.td-dt.neg { color:#ff6644; }
+.td-vY   { color:#00BBFF; }
+.td-vT   { color:#FF6622; }
+.td-vD   { font-weight:700; color:#ff8844; }
+/* V4 row highlight */
+.v4-row .td-roi  { color:#CC44FF; }
+.v4-row .td-y    { color:#8855FF; }
+.v4-row .td-t    { color:#CC44FF; }
+.v4-row .td-dt.neg { color:#ff2244; font-weight:700; font-size:11px; }
+.v4-row .td-vY   { color:#8855FF; }
+.v4-row .td-vT   { color:#CC44FF; }
+.v4-row .td-vD   { color:#FF8844; }
+
+/* Annotation */
+#annot {
+  font-size:9px; color:rgba(255,140,60,0.55); letter-spacing:1.2px;
+  padding:2px 0 0; border-top:1px solid rgba(255,100,50,0.10);
+}
+#annot span { color:rgba(255,80,80,0.75); font-weight:700; }
+</style>
+</head>
+<body>
+
+<div id="webgl-area">
+  <!-- Canvas injected by Three.js renderer -->
+
+  <div id="divider-glow"></div>
+  <div id="divider"></div>
+
+  <!-- Group labels -->
+  <div class="group-label" id="label-young">
+    <h2 style="color:#00E5FF">YOUNG CONTROLS</h2>
+    <p>n=11 &nbsp;·&nbsp; Cyan → Violet ventral stream</p>
+  </div>
+  <div class="group-label" id="label-t2dm">
+    <h2 style="color:#FF8C00">T2DM / OLD</h2>
+    <p>n=22 &nbsp;·&nbsp; Amber → Magenta ventral stream</p>
+  </div>
+
+  <!-- ROI t_peak readouts -->
+  <div class="roi-chain" id="roi-young">
+    <div class="chain-val"><span style="color:#00E5FF;font-weight:700">V1</span><span style="color:#00E5FF88">7.500 s</span></div>
+    <div class="chain-val"><span style="color:#00BBFF;font-weight:700">V2</span><span style="color:#00BBFF88">7.295 s</span></div>
+    <div class="chain-val"><span style="color:#4488FF;font-weight:700">V3</span><span style="color:#4488FF88">7.049 s</span></div>
+    <div class="chain-val"><span style="color:#8855FF;font-weight:700">V4</span><span style="color:#8855FF88">6.382 s</span></div>
+  </div>
+  <div class="roi-chain" id="roi-t2dm">
+    <div class="chain-val"><span style="color:#FF8C0088">7.209 s</span><span style="color:#FF8C00;font-weight:700">V1</span></div>
+    <div class="chain-val"><span style="color:#FF662288">6.966 s</span><span style="color:#FF6622;font-weight:700">V2</span></div>
+    <div class="chain-val"><span style="color:#FF336688">6.740 s</span><span style="color:#FF3366;font-weight:700">V3</span></div>
+    <div class="chain-val"><span style="color:#CC44FF88">5.877 s &#9888;</span><span style="color:#CC44FF;font-weight:700">V4</span></div>
+  </div>
+
+  <!-- Live intensity bars -->
+  <div class="live-panel" id="live-young">
+    <div class="live-row"><span class="live-bar-wrap"><div class="live-bar" id="lyv1-bar" style="background:#00E5FF;width:0%"></div></span><span id="lyv1-val" style="color:#00E5FF88">0.000</span></div>
+    <div class="live-row"><span class="live-bar-wrap"><div class="live-bar" id="lyv2-bar" style="background:#00BBFF;width:0%"></div></span><span id="lyv2-val" style="color:#00BBFF88">0.000</span></div>
+    <div class="live-row"><span class="live-bar-wrap"><div class="live-bar" id="lyv3-bar" style="background:#4488FF;width:0%"></div></span><span id="lyv3-val" style="color:#4488FF88">0.000</span></div>
+    <div class="live-row"><span class="live-bar-wrap"><div class="live-bar" id="lyv4-bar" style="background:#8855FF;width:0%"></div></span><span id="lyv4-val" style="color:#8855FF88">0.000</span></div>
+  </div>
+  <div class="live-panel" id="live-t2dm">
+    <div class="live-row"><span id="ltv1-val" style="color:#FF8C0088">0.000</span><span class="live-bar-wrap"><div class="live-bar" id="ltv1-bar" style="background:#FF8C00;width:0%"></div></span></div>
+    <div class="live-row"><span id="ltv2-val" style="color:#FF662288">0.000</span><span class="live-bar-wrap"><div class="live-bar" id="ltv2-bar" style="background:#FF6622;width:0%"></div></span></div>
+    <div class="live-row"><span id="ltv3-val" style="color:#FF336688">0.000</span><span class="live-bar-wrap"><div class="live-bar" id="ltv3-bar" style="background:#FF3366;width:0%"></div></span></div>
+    <div class="live-row"><span id="ltv4-val" style="color:#CC44FF88">0.000</span><span class="live-bar-wrap"><div class="live-bar" id="ltv4-bar" style="background:#CC44FF;width:0%"></div></span></div>
+  </div>
+</div>
+
+<!-- ══ Bottom stats ══ -->
+<div id="stats-area">
+
+  <div id="controls">
+    <div id="sim-display">0.00 s</div>
+    <button class="ctrl-btn active" id="play-btn">PAUSE</button>
+    <span class="ctrl-lbl">SPEED</span>
+    <input type="range" class="sm" id="speed-sl" min="0.5" max="8" step="0.5" value="3">
+    <span id="speed-lbl" class="ctrl-lbl">3.0&times;</span>
+    <span class="ctrl-lbl">VARIANCE</span>
+    <input type="range" class="sm" id="var-sl" min="0" max="1" step="0.05" value="0.7">
+    <span id="var-lbl" class="ctrl-lbl">70%</span>
+    <div class="flex-spacer"></div>
+    <button class="ctrl-btn" id="save-btn">SAVE PNG</button>
+    <span class="siggraph-tag">SIGGRAPH 2026 &nbsp;·&nbsp; REAL CLINICAL DATA &nbsp;·&nbsp; IEEE TMI-GRADE</span>
+  </div>
+
+  <div id="cmp-wrap">
+  <div id="cmp-table">
+    <!-- Headers -->
+    <div class="th">ROI</div>
+    <div class="th th-young">Young t&#8346;</div>
+    <div class="th th-t2dm">T2DM t&#8346;</div>
+    <div class="th">&Delta;t (ms)</div>
+    <div class="th th-young">Young &sigma;</div>
+    <div class="th th-t2dm">T2DM &sigma;</div>
+    <div class="th">&sigma; increase</div>
+
+    <!-- V1 -->
+    <div class="td td-roi">V1</div>
+    <div class="td td-y">7.500 s</div>
+    <div class="td td-t">7.209 s</div>
+    <div class="td td-dt neg">&minus;291 ms</div>
+    <div class="td td-vY">&plusmn;0.548 s</div>
+    <div class="td td-vT">&plusmn;0.860 s</div>
+    <div class="td td-vD">+57%</div>
+
+    <!-- V2 -->
+    <div class="td td-roi">V2</div>
+    <div class="td td-y">7.295 s</div>
+    <div class="td td-t">6.966 s</div>
+    <div class="td td-dt neg">&minus;329 ms</div>
+    <div class="td td-vY">&plusmn;0.550 s</div>
+    <div class="td td-vT">&plusmn;0.731 s</div>
+    <div class="td td-vD">+33%</div>
+
+    <!-- V3 -->
+    <div class="td td-roi">V3</div>
+    <div class="td td-y">7.049 s</div>
+    <div class="td td-t">6.740 s</div>
+    <div class="td td-dt neg">&minus;309 ms</div>
+    <div class="td td-vY">&plusmn;0.506 s</div>
+    <div class="td td-vT">&plusmn;0.784 s</div>
+    <div class="td td-vD">+55%</div>
+
+    <!-- V4 — highlighted -->
+    <div class="td td-roi v4-row">V4 &#9888;</div>
+    <div class="td td-y v4-row">6.382 s</div>
+    <div class="td td-t v4-row">5.877 s</div>
+    <div class="td td-dt neg v4-row">&minus;505 ms</div>
+    <div class="td td-vY v4-row">&plusmn;1.963 s</div>
+    <div class="td td-vT v4-row">&plusmn;2.322 s</div>
+    <div class="td td-vD v4-row">+18%</div>
+  </div>
+  </div>
+
+  <div id="annot">
+    V4 anomaly: T2DM group shows <span>&minus;505 ms hemodynamic advance</span> with absolute variance
+    <span>2.32 s</span> (3.9&times; higher than V1&ndash;V3 mean) — compensatory neural mechanism
+    or severe microvascular disruption. Imputed: n=4/33 (12.1%).
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+'use strict';
+// ═══════════════════════════════════════════════════════════════════════
+//  SHARED HRF MATH  — Lanczos log-Gamma + MATLAB-equiv gampdf
+// ═══════════════════════════════════════════════════════════════════════
+function lgam(z) {
+  const c = [0.99999999999980993,676.5203681218851,-1259.1392167224028,
+             771.32342877765313,-176.61502916214059,12.507343278686905,
+             -0.13857109526572012,9.9843695780195716e-6,1.5056327351493116e-7];
+  if (z < 0.5) return Math.log(Math.PI / Math.sin(Math.PI*z)) - lgam(1-z);
+  z -= 1; let x = c[0];
+  for (let i=1; i<9; i++) x += c[i]/(z+i);
+  const t2 = z + 7.5;
+  return 0.5*Math.log(2*Math.PI) + (z+0.5)*Math.log(t2) - t2 + Math.log(x);
+}
+function gampdf(x, shape, scale) {
+  if (x <= 0) return 0;
+  return Math.exp((shape-1)*Math.log(x) - x/scale - shape*Math.log(scale) - lgam(shape));
+}
+function hrf(t, p) {
+  if (t < 0) return p.c;
+  return p.a1*gampdf(t,p.p1,p.q1) - p.a2*gampdf(t,p.p2,p.q2) + p.c;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  CLINICAL DATA  (extracted from hrf_master_data.json)
+// ═══════════════════════════════════════════════════════════════════════
+const ROI_COLORS = {
+  Young:    { V1:'#00E5FF', V2:'#00BBFF', V3:'#4488FF', V4:'#8855FF' },
+  T2DM_Old: { V1:'#FF8C00', V2:'#FF6622', V3:'#FF3366', V4:'#CC44FF' },
+};
+const GROUP_PARAMS = {
+  Young: {
+    hex:'#00E5FF', n:11, varScale:0.548,
+    V1:{ p1:6.589, q1:1.373, p2:9.054,  q2:1.807, a1:35.82, a2:25.31, c:0.183, tPeak:7.500, peakAmp:2.833, fwhm:6.937, std:0.548 },
+    V2:{ p1:6.483, q1:1.371, p2:10.33,  q2:1.518, a1:31.31, a2:22.07, c:0.112, tPeak:7.295, peakAmp:2.273, fwhm:6.717, std:0.550 },
+    V3:{ p1:6.535, q1:1.334, p2:10.34,  q2:1.505, a1:24.41, a2:16.17, c:0.097, tPeak:7.049, peakAmp:2.095, fwhm:6.486, std:0.506 },
+    V4:{ p1:6.329, q1:1.418, p2:9.688,  q2:1.562, a1:25.56, a2:15.46, c:0.160, tPeak:6.382, peakAmp:2.248, fwhm:5.830, std:1.963 },
+  },
+  T2DM_Old: {
+    hex:'#FF8C00', n:22, varScale:0.860,
+    V1:{ p1:6.253, q1:1.316, p2:10.38,  q2:1.343, a1:33.45, a2:20.26, c:0.144, tPeak:7.209, peakAmp:2.640, fwhm:6.947, std:0.860 },
+    V2:{ p1:6.059, q1:1.358, p2:9.392,  q2:1.514, a1:34.03, a2:22.76, c:0.155, tPeak:6.966, peakAmp:2.359, fwhm:6.913, std:0.731 },
+    V3:{ p1:5.786, q1:1.357, p2:8.969,  q2:1.498, a1:25.79, a2:16.16, c:0.128, tPeak:6.740, peakAmp:2.094, fwhm:6.759, std:0.784 },
+    V4:{ p1:5.791, q1:1.405, p2:10.39,  q2:1.461, a1:24.56, a2:15.92, c:0.148, tPeak:5.877, peakAmp:2.149, fwhm:5.831, std:2.322 },
+  },
+};
+
+// Pre-compute normalisation maxima
+const HRF_MAX = {};
+['Young','T2DM_Old'].forEach(grp => {
+  ['V1','V2','V3','V4'].forEach(roi => {
+    const p = GROUP_PARAMS[grp][roi]; let mx = -Infinity;
+    for (let t=0; t<=24; t+=0.05) { const v=hrf(t,p); if(v>mx) mx=v; }
+    HRF_MAX[`${grp}_${roi}`] = mx;
+  });
+});
+function normHrf(t, roi, grp) {
+  return Math.max(0, hrf(t, GROUP_PARAMS[grp][roi]) / HRF_MAX[`${grp}_${roi}`]);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  RENDERER  — single canvas, scissor split
+// ═══════════════════════════════════════════════════════════════════════
+const renderer = new THREE.WebGLRenderer({ antialias:true, preserveDrawingBuffer:true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.1;
+renderer.autoClear = false;
+document.getElementById('webgl-area').appendChild(renderer.domElement);
+
+// ═══════════════════════════════════════════════════════════════════════
+//  SCENE CONSTANTS
+// ═══════════════════════════════════════════════════════════════════════
+const SIM_DUR = 24, TRAVEL = 2.2, BRAIN_R = 4.1;
+const POS = {
+  V1: new THREE.Vector3( 0.0, -0.9, -3.1),
+  V2: new THREE.Vector3( 0.0,  0.2, -1.5),
+  V3: new THREE.Vector3( 0.0,  1.1,  0.1),
+  V4: new THREE.Vector3( 0.8,  0.6,  1.8),
+};
+
+// ═══════════════════════════════════════════════════════════════════════
+//  SCENE FACTORY — builds a complete glass Brain scene for one group
+// ═══════════════════════════════════════════════════════════════════════
+function buildScene(group) {
+  const gp   = GROUP_PARAMS[group];
+  const cols = ROI_COLORS[group];
+
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x030508);
+  scene.fog = new THREE.FogExp2(0x030508, 0.032);
+
+  // Lights
+  scene.add(new THREE.AmbientLight(0x0a1830, 2.0));
+  const dirL = new THREE.DirectionalLight(0x3366cc, 0.6);
+  dirL.position.set(6, 8, 5); scene.add(dirL);
+
+  const nodeLights = {};
+  ['V1','V2','V3','V4'].forEach(r => {
+    const l = new THREE.PointLight(new THREE.Color(cols[r]), 0, 5);
+    l.position.copy(POS[r]); scene.add(l); nodeLights[r] = l;
+  });
+
+  // Glass brain shell
+  const brainBack = new THREE.Mesh(
+    new THREE.SphereGeometry(BRAIN_R, 48, 32),
+    new THREE.MeshBasicMaterial({ color:0x000d22, transparent:true, opacity:0.38, side:THREE.BackSide })
+  ); scene.add(brainBack);
+
+  const brainFront = new THREE.Mesh(
+    new THREE.SphereGeometry(BRAIN_R, 48, 32),
+    new THREE.MeshLambertMaterial({ color:0x1144bb, transparent:true, opacity:0.045, side:THREE.FrontSide, depthWrite:false })
+  ); scene.add(brainFront);
+
+  const brainWire = new THREE.Mesh(
+    new THREE.SphereGeometry(BRAIN_R+0.06, 22, 15),
+    new THREE.MeshBasicMaterial({ color:0x1a3d6e, wireframe:true, transparent:true, opacity:0.13 })
+  ); scene.add(brainWire);
+
+  const eqRing = new THREE.Mesh(
+    new THREE.TorusGeometry(BRAIN_R, 0.012, 8, 120),
+    new THREE.MeshBasicMaterial({ color:0x224488, transparent:true, opacity:0.28 })
+  ); eqRing.rotation.x = Math.PI/2; scene.add(eqRing);
+
+  // Starfield
+  { const n=1600, pos=new Float32Array(n*3);
+    for(let i=0;i<n;i++){pos[i*3]=(Math.random()-.5)*70;pos[i*3+1]=(Math.random()-.5)*70;pos[i*3+2]=(Math.random()-.5)*70;}
+    const g=new THREE.BufferGeometry(); g.setAttribute('position',new THREE.BufferAttribute(pos,3));
+    scene.add(new THREE.Points(g,new THREE.PointsMaterial({color:0x1a2840,size:0.045,transparent:true,opacity:0.5}))); }
+
+  // ROI nodes
+  const nodeObjs = {};
+  ['V1','V2','V3','V4'].forEach((roi, i) => {
+    const sz = [0.24,0.20,0.18,0.16][i];
+    const sphere = new THREE.Mesh(
+      new THREE.SphereGeometry(sz, 24, 16),
+      new THREE.MeshPhongMaterial({ color:0x002233, emissive:0x000811, emissiveIntensity:0.5, shininess:90, transparent:true, opacity:0.92 })
+    ); sphere.position.copy(POS[roi]); scene.add(sphere);
+
+    const ring = new THREE.Mesh(
+      new THREE.TorusGeometry(sz+0.14, 0.007, 6, 40),
+      new THREE.MeshBasicMaterial({ color:new THREE.Color(cols[roi]), transparent:true, opacity:0.35 })
+    ); ring.position.copy(POS[roi]); scene.add(ring);
+
+    const spr = new THREE.Sprite(
+      new THREE.SpriteMaterial({ color:new THREE.Color(cols[roi]), transparent:true, opacity:0, blending:THREE.AdditiveBlending })
+    ); spr.position.copy(POS[roi]); spr.scale.set(1.3,1.3,1.3); scene.add(spr);
+
+    nodeObjs[roi] = { sphere, ring, spr, mat:sphere.material, sprMat:spr.material };
+  });
+
+  // Bundled pathway helper
+  function makePaths(fromPos, toPos, n) {
+    const lateralOff = [-0.55,-0.27,0,0.27,0.55];
+    const vertOff    = [ 0.15,-0.10,0,0.10,-0.15];
+    const arr = [];
+    for (let i=0; i<n; i++) {
+      const dx = (lateralOff[i]||0)*0.45, dy = (vertOff[i]||0)*0.4;
+      const m1 = fromPos.clone().lerp(toPos,0.35).add(new THREE.Vector3(dx*1.3,dy*1.2,0));
+      const m2 = fromPos.clone().lerp(toPos,0.65).add(new THREE.Vector3(dx*0.9,dy*0.8,0));
+      const curve = new THREE.CatmullRomCurve3([fromPos.clone(),m1,m2,toPos.clone()]);
+      const tube  = new THREE.Mesh(
+        new THREE.TubeGeometry(curve,70,0.022,6,false),
+        new THREE.MeshBasicMaterial({ color:0x001122, transparent:true, opacity:0.10 })
+      ); scene.add(tube);
+      arr.push({ curve, mat:tube.material });
+    }
+    return arr;
+  }
+  const pathsAB = makePaths(POS.V1, POS.V2, 5);
+  const pathsBC = makePaths(POS.V2, POS.V3, 5);
+  const pathsCD = makePaths(POS.V3, POS.V4, 4);
+
+  // Colour paths
+  pathsAB.forEach(p=>p.mat.color.set(cols.V1).multiplyScalar(0.35));
+  pathsBC.forEach(p=>p.mat.color.set(cols.V3).multiplyScalar(0.35));
+  pathsCD.forEach(p=>p.mat.color.set(cols.V4).multiplyScalar(0.35));
+
+  // Comet helper
+  function makeComet(sz) {
+    const mesh = new THREE.Mesh(
+      new THREE.SphereGeometry(sz,14,10),
+      new THREE.MeshBasicMaterial({ color:0xffffff, transparent:true, opacity:0 })
+    );
+    const spr = new THREE.Sprite(
+      new THREE.SpriteMaterial({ color:0xffffff, transparent:true, opacity:0, blending:THREE.AdditiveBlending })
+    );
+    spr.scale.set(0.9,0.9,0.9); mesh.add(spr); scene.add(mesh);
+    return { mesh, mat:mesh.material, sprMat:spr.material };
+  }
+  const cometAB  = makeComet(0.14); const cometBC  = makeComet(0.14); const cometCD  = makeComet(0.12);
+  const ghostsAB = [makeComet(0.09),makeComet(0.09),makeComet(0.09)];
+  const ghostsBC = [makeComet(0.09),makeComet(0.09),makeComet(0.09)];
+  const ghostsCD = [makeComet(0.07),makeComet(0.07),makeComet(0.07)];
+
+  // Colour comets
+  [cometAB,...ghostsAB].forEach(c=>{c.mat.color.set(cols.V2);c.sprMat.color.set(cols.V2);});
+  [cometBC,...ghostsBC].forEach(c=>{c.mat.color.set(cols.V3);c.sprMat.color.set(cols.V3);});
+  [cometCD,...ghostsCD].forEach(c=>{c.mat.color.set(cols.V4);c.sprMat.color.set(cols.V4);});
+
+  // Camera
+  const camera = new THREE.PerspectiveCamera(42, 1, 0.1, 80);
+  camera.position.set(7.5, 4, 9);
+  camera.lookAt(0, 0, -1.2);
+
+  return {
+    scene, camera, gp, cols, nodeLights,
+    brainBack, brainFront, brainWire,
+    nodeObjs, pathsAB, pathsBC, pathsCD,
+    cometAB, cometBC, cometCD,
+    ghostsAB, ghostsBC, ghostsCD,
+  };
+}
+
+// Build both scenes
+const brainY = buildScene('Young');
+const brainT = buildScene('T2DM_Old');
+
+// ═══════════════════════════════════════════════════════════════════════
+//  SHARED STATE
+// ═══════════════════════════════════════════════════════════════════════
+const S = { simT:0, playing:true, speed:3, varStr:0.7 };
+let camAngle = 0.4;          // starting angle (slightly off-axis for dramatic view)
+const CAM_DIST = 10.5, CAM_Y = 4.2;
+
+// ── Resize ──────────────────────────────────────────────────────────────
+function onResize() {
+  const el = document.getElementById('webgl-area');
+  const W  = el.clientWidth, H = el.clientHeight;
+  renderer.setSize(W, H);
+}
+window.addEventListener('resize', onResize);
+onResize();
+
+// ═══════════════════════════════════════════════════════════════════════
+//  UPDATE SINGLE BRAIN STATE
+// ═══════════════════════════════════════════════════════════════════════
+function updateBrain(b, group, dt, t, varStr, camPos) {
+  const { gp, cols, nodeLights, brainBack, brainFront, brainWire,
+          nodeObjs, pathsAB, pathsBC, pathsCD,
+          cometAB, cometBC, cometCD, ghostsAB, ghostsBC, ghostsCD } = b;
+
+  // Intensities (Double-Gamma normalised)
+  const i1 = normHrf(t, 'V1', group);
+  const i2 = normHrf(t, 'V2', group);
+  const i3 = normHrf(t, 'V3', group);
+  const i4 = normHrf(t, 'V4', group);
+  const ivec = { V1:i1, V2:i2, V3:i3, V4:i4 };
+
+  // Node glow
+  ['V1','V2','V3','V4'].forEach(roi => {
+    const intensity = ivec[roi];
+    const obj = nodeObjs[roi];
+    const c = new THREE.Color(cols[roi]);
+    obj.mat.emissive.copy(c).multiplyScalar(0.85 * intensity);
+    obj.mat.emissiveIntensity = intensity;
+    obj.sprMat.opacity  = Math.pow(intensity, 0.8) * 0.55;
+    nodeLights[roi].intensity = intensity * 2.8;
+    obj.ring.material.opacity = 0.18 + intensity * 0.55;
+    obj.ring.material.color.copy(c).multiplyScalar(0.35 + intensity * 0.65);
+    obj.ring.rotation.z += dt * (0.4 + intensity * 1.2);
+    obj.ring.lookAt(camPos);
+  });
+
+  // Path glow helper
+  function glowPaths(paths, intensity) {
+    paths.forEach((pth, pi) => {
+      const n = paths.length, ctr = Math.floor(n/2);
+      const fade = Math.max(0.15, 1 - Math.abs(pi-ctr)/(n*0.75));
+      pth.mat.opacity = 0.04 + intensity * 0.45 * fade;
+    });
+  }
+
+  // Comet travel helper
+  function runComet(comet, ghosts, paths, phase, intensity, varOff, pathCenter) {
+    const bright = intensity * intensity;
+    const u = (((t + phase) % TRAVEL) + TRAVEL) % TRAVEL / TRAVEL;
+    const pidxCenter = Math.min(pathCenter, paths.length-1);
+    comet.mesh.position.copy(paths[pidxCenter].curve.getPoint(u));
+    comet.mat.opacity    = bright * 0.92;
+    comet.sprMat.opacity = bright * 0.65;
+    comet.mesh.scale.setScalar(0.5 + intensity * 1.5);
+    glowPaths(paths, intensity);
+
+    if (varStr > 0) {
+      const vOff = gp.varScale * varStr * varOff;
+      const offsets = [-vOff, 0, vOff];
+      ghosts.forEach((g, gi) => {
+        const gu = ((((t+phase) + offsets[gi]) % TRAVEL)+TRAVEL) % TRAVEL / TRAVEL;
+        const gidx = Math.min([0, pidxCenter, paths.length-1][gi], paths.length-1);
+        g.mesh.position.copy(paths[gidx].curve.getPoint(gu));
+        g.mat.opacity    = bright * 0.28 * varStr;
+        g.sprMat.opacity = bright * 0.18 * varStr;
+        g.mesh.scale.setScalar(0.38 + intensity*0.65);
+      });
+    } else {
+      ghosts.forEach(g => { g.mat.opacity=0; g.sprMat.opacity=0; });
+    }
+  }
+
+  runComet(cometAB, ghostsAB, pathsAB, 0,           i1, 0.60, 2);
+  runComet(cometBC, ghostsBC, pathsBC, TRAVEL*0.5,  i2, 0.60, 2);
+  runComet(cometCD, ghostsCD, pathsCD, 0,           i3, 0.80, 1);
+
+  // Brain shell breathing
+  const avgI = (i1+i2+i3+i4)*0.25;
+  brainBack.material.opacity  = 0.32 + avgI*0.10;
+  brainFront.material.opacity = 0.04 + avgI*0.025;
+  brainWire.material.opacity  = 0.10 + avgI*0.06;
+
+  return { i1, i2, i3, i4 };
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  RENDER LOOP
+// ═══════════════════════════════════════════════════════════════════════
+const clock = new THREE.Clock();
+
+function animate() {
+  requestAnimationFrame(animate);
+  const dt = clock.getDelta();
+
+  if (S.playing) {
+    S.simT = (S.simT + dt * S.speed) % SIM_DUR;
+    camAngle += dt * 0.22;
+  }
+
+  // Shared camera orbit
+  const cx = Math.sin(camAngle) * CAM_DIST;
+  const cz = Math.cos(camAngle) * CAM_DIST;
+  const camPos  = new THREE.Vector3(cx, CAM_Y, cz);
+  const target  = new THREE.Vector3(0, 0, -1.2);
+
+  brainY.camera.position.copy(camPos); brainY.camera.lookAt(target);
+  brainT.camera.position.copy(camPos); brainT.camera.lookAt(target);
+
+  // Update physics
+  const yI = updateBrain(brainY, 'Young',    dt, S.simT, S.varStr, camPos);
+  const tI = updateBrain(brainT, 'T2DM_Old', dt, S.simT, S.varStr, camPos);
+
+  // ── Scissor split render ──
+  const dpr   = renderer.getPixelRatio();
+  const W     = renderer.domElement.clientWidth  * dpr;
+  const H     = renderer.domElement.clientHeight * dpr;
+  const halfW = Math.floor(W / 2);
+
+  renderer.clear();
+  renderer.setScissorTest(true);
+
+  // Left: Young
+  renderer.setViewport(0, 0, halfW, H);
+  renderer.setScissor(0, 0, halfW, H);
+  brainY.camera.aspect = halfW / H;
+  brainY.camera.updateProjectionMatrix();
+  renderer.render(brainY.scene, brainY.camera);
+
+  // Right: T2DM
+  renderer.setViewport(halfW, 0, W-halfW, H);
+  renderer.setScissor(halfW, 0, W-halfW, H);
+  brainT.camera.aspect = (W-halfW) / H;
+  brainT.camera.updateProjectionMatrix();
+  renderer.render(brainT.scene, brainT.camera);
+
+  renderer.setScissorTest(false);
+
+  // ── DOM live update ──
+  document.getElementById('sim-display').textContent = S.simT.toFixed(2) + ' s';
+
+  const ymap = [yI.i1,yI.i2,yI.i3,yI.i4];
+  const tmap = [tI.i1,tI.i2,tI.i3,tI.i4];
+  ['v1','v2','v3','v4'].forEach((r,i) => {
+    document.getElementById(`ly${r}-val`).textContent = ymap[i].toFixed(3);
+    document.getElementById(`ly${r}-bar`).style.width  = (ymap[i]*100)+'%';
+    document.getElementById(`lt${r}-val`).textContent = tmap[i].toFixed(3);
+    document.getElementById(`lt${r}-bar`).style.width  = (tmap[i]*100)+'%';
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  CONTROLS
+// ═══════════════════════════════════════════════════════════════════════
+document.getElementById('play-btn').addEventListener('click', () => {
+  S.playing = !S.playing;
+  const b = document.getElementById('play-btn');
+  b.textContent = S.playing ? 'PAUSE' : 'PLAY';
+  b.classList.toggle('active', S.playing);
+});
+document.getElementById('speed-sl').addEventListener('input', e => {
+  S.speed = +e.target.value;
+  document.getElementById('speed-lbl').textContent = S.speed.toFixed(1)+'×';
+});
+document.getElementById('var-sl').addEventListener('input', e => {
+  S.varStr = +e.target.value;
+  document.getElementById('var-lbl').textContent = S.varStr===0 ? 'OFF' : Math.round(S.varStr*100)+'%';
+});
+document.getElementById('save-btn').addEventListener('click', () => {
+  // Force a clean render, then export the full split-screen as PNG
+  const dpr = renderer.getPixelRatio();
+  const W = renderer.domElement.clientWidth * dpr;
+  const H = renderer.domElement.clientHeight * dpr;
+  const halfW = Math.floor(W/2);
+  renderer.clear();
+  renderer.setScissorTest(true);
+  renderer.setViewport(0,0,halfW,H); renderer.setScissor(0,0,halfW,H);
+  brainY.camera.aspect = halfW/H; brainY.camera.updateProjectionMatrix();
+  renderer.render(brainY.scene, brainY.camera);
+  renderer.setViewport(halfW,0,W-halfW,H); renderer.setScissor(halfW,0,W-halfW,H);
+  brainT.camera.aspect = (W-halfW)/H; brainT.camera.updateProjectionMatrix();
+  renderer.render(brainT.scene, brainT.camera);
+  renderer.setScissorTest(false);
+  const ts = new Date().toISOString().slice(0,19).replace(/[T:]/g,'-');
+  const a = document.createElement('a');
+  a.download = `hrf_comparison_${ts}.png`;
+  a.href = renderer.domElement.toDataURL('image/png');
+  a.click();
+  const b = document.getElementById('save-btn');
+  b.classList.add('save-flash');
+  setTimeout(() => b.classList.remove('save-flash'), 900);
+});
+
+// Drag to orbit (both scenes sync)
+let isDrag=false, dragX=0;
+renderer.domElement.addEventListener('mousedown',  e=>{isDrag=true; dragX=e.clientX;});
+renderer.domElement.addEventListener('mousemove',  e=>{if(!isDrag)return; camAngle+=(e.clientX-dragX)*0.005; dragX=e.clientX;});
+renderer.domElement.addEventListener('mouseup',    ()=>isDrag=false);
+renderer.domElement.addEventListener('mouseleave', ()=>isDrag=false);
+renderer.domElement.addEventListener('touchstart', e=>{isDrag=true; dragX=e.touches[0].clientX;},{passive:true});
+renderer.domElement.addEventListener('touchmove',  e=>{if(!isDrag)return; camAngle+=(e.touches[0].clientX-dragX)*0.005; dragX=e.touches[0].clientX;},{passive:true});
+renderer.domElement.addEventListener('touchend',   ()=>isDrag=false);
+
+// ═══════════════════════════════════════════════════════════════════════
+//  START
+// ═══════════════════════════════════════════════════════════════════════
+animate();
+</script>
+</body>
+</html>

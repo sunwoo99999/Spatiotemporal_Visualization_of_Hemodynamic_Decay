@@ -1,0 +1,472 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Hemodynamic Response — Ventral Stream V1→V4</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body { background:#000508; overflow:hidden; font-family:'Courier New',monospace; }
+#c { display:block; width:100vw; height:100vh; }
+.ui-panel { pointer-events:all; position:absolute; }
+#grp-panel { top:18px; left:18px; }
+.grp-btn {
+  display:inline-block; padding:7px 18px; margin-right:8px;
+  border:1px solid; cursor:pointer; font-size:11px; letter-spacing:2px;
+  text-transform:uppercase; transition:all .25s; background:transparent;
+}
+.grp-btn.young { color:#00E5FF; border-color:#00E5FF44; }
+.grp-btn.young.active { background:#00E5FF22; border-color:#00E5FF; box-shadow:0 0 12px #00E5FF88; }
+.grp-btn.t2dm  { color:#FF8C00; border-color:#FF8C0044; }
+.grp-btn.t2dm.active  { background:#FF8C0022; border-color:#FF8C00; box-shadow:0 0 12px #FF8C0088; }
+#speed-panel { top:62px; left:18px; display:flex; align-items:center; gap:10px; }
+#speed-panel label { color:#336644; font-size:10px; letter-spacing:1px; }
+#speedSlider { width:100px; accent-color:#00FF88; }
+#speedVal { color:#00FF88; font-size:10px; min-width:30px; }
+#ctrl-panel { top:18px; right:18px; display:flex; gap:8px; flex-direction:column; align-items:flex-end; }
+.ctrl-btn {
+  padding:7px 16px; border:1px solid #00FF8844; cursor:pointer;
+  font-size:10px; letter-spacing:2px; text-transform:uppercase;
+  color:#00FF88; background:transparent; transition:all .2s;
+}
+.ctrl-btn:hover { background:#00FF8818; border-color:#00FF88; box-shadow:0 0 10px #00FF8866; }
+.ctrl-btn.active { background:#00FF8830; border-color:#00FF88; box-shadow:0 0 14px #00FF88AA; }
+#roi-panel {
+  bottom:18px; left:18px; background:rgba(0,8,5,0.75);
+  border:1px solid #003322; padding:10px 14px;
+}
+#roi-panel table { border-collapse:collapse; font-size:10px; }
+#roi-panel th { color:#336644; letter-spacing:1px; padding:2px 10px; text-align:left; font-weight:normal; }
+#roi-panel td { padding:3px 10px; color:#00CC66; }
+#hrf-panel { bottom:18px; right:18px; }
+#hrf-canvas { display:block; border:1px solid #003322; background:rgba(0,8,5,0.85); }
+#hrf-title { color:#336644; font-size:9px; letter-spacing:2px; text-align:right; margin-bottom:4px; }
+/* Timeline scrubber */
+#time-panel {
+  bottom:18px; left:50%; transform:translateX(-50%);
+  background:rgba(0,8,5,0.80); border:1px solid #003322;
+  padding:8px 16px 10px; min-width:420px;
+}
+#time-row { display:flex; align-items:center; gap:10px; }
+#timeSlider { flex:1; accent-color:#00FF88; height:4px; cursor:pointer; }
+#timeVal { color:#00FF88; font-size:11px; min-width:44px; letter-spacing:1px; }
+#playBtn {
+  padding:4px 12px; border:1px solid #006633; background:transparent;
+  color:#00FF88; font-size:10px; letter-spacing:2px; cursor:pointer;
+}
+#playBtn:hover { background:#00FF8822; }
+#tick-row { position:relative; height:16px; margin-top:2px; font-size:8px; }
+.tick-label { position:absolute; transform:translateX(-50%); color:#336644; letter-spacing:1px; white-space:nowrap; }
+#title-bar {
+  position:absolute; top:18px; left:50%; transform:translateX(-50%);
+  color:#004422; font-size:10px; letter-spacing:3px; text-transform:uppercase;
+  pointer-events:none; white-space:nowrap;
+}
+#scanlines {
+  position:fixed; top:0; left:0; width:100%; height:100%;
+  pointer-events:none;
+  background:repeating-linear-gradient(
+    0deg, transparent, transparent 2px,
+    rgba(0,255,136,0.012) 2px, rgba(0,255,136,0.012) 4px
+  );
+}
+#ui { position:fixed; top:0; left:0; width:100%; height:100%; pointer-events:none; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="scanlines"></div>
+<div id="ui">
+  <div id="title-bar">HEMODYNAMIC RESPONSE — VENTRAL STREAM V1&#8594;V4 | SIGGRAPH 2026</div>
+  <div class="ui-panel" id="grp-panel">
+    <button class="grp-btn young active" onclick="setGroup('young')">YOUNG (n=11)</button>
+    <button class="grp-btn t2dm" onclick="setGroup('t2dm')">T2DM / OLD (n=22)</button>
+  </div>
+  <div class="ui-panel" id="speed-panel">
+    <label>SPEED</label>
+    <input id="speedSlider" type="range" min="0.02" max="1.0" step="0.01" value="0.18"
+      oninput="simSpeed=parseFloat(this.value);document.getElementById('speedVal').textContent=simSpeed.toFixed(2)+'x'">
+    <span id="speedVal">0.18x</span>
+  </div>
+  <div class="ui-panel" id="ctrl-panel">
+    <button class="ctrl-btn" id="heroBtn" onclick="setHeroView()">HERO VIEW</button>
+    <button class="ctrl-btn" id="demoBtn" onclick="toggleDemo()">PEAK DEMO</button>
+    <button class="ctrl-btn" id="saveBtn" onclick="savePNG()">SAVE PNG</button>
+  </div>
+  <div class="ui-panel" id="roi-panel">
+    <table id="roi-table">
+      <tr><th>ROI</th><th>tPeak (s)</th><th>+/-std</th><th>Delta Young</th></tr>
+    </table>
+  </div>
+  <div class="ui-panel" id="hrf-panel">
+    <div id="hrf-title">HRF WAVEFORM V1-V4</div>
+    <canvas id="hrf-canvas" width="240" height="120"></canvas>
+  </div>
+  <!-- Timeline scrubber -->
+  <div class="ui-panel" id="time-panel">
+    <div id="time-row">
+      <button id="playBtn" onclick="togglePlay()">&#9646;&#9646; PAUSE</button>
+      <input id="timeSlider" type="range" min="0" max="28" step="0.1" value="0"
+        oninput="onScrub(this.value)">
+      <span id="timeVal">0.0s</span>
+    </div>
+    <div id="tick-row" id="tick-row"></div>
+  </div>
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script>
+'use strict';
+let currentGroup='young', simSpeed=0.18, demoActive=false, brainData=null, brainOutline=null;
+let paused=false, scrubbing=false;
+const SIM_PERIOD=28;
+// ARRIVALS: real brain-time seconds matching HRF tPeak scale
+const ARRIVALS={LGN_L:0,LGN_R:0,V1L:2.0,V1R:2.0,V2L:3.5,V2R:3.5,V3L:5.0,V3R:5.0,V4L:7.0,V4R:7.0,LOC_L:4.2,LOC_R:4.2,V5_L:5.8,V5_R:5.8,FFA_L:8.5,FFA_R:8.5,PPA_L:10.0,PPA_R:10.0,IPS_L:6.5,IPS_R:6.5};
+const HRF_STATS={young:{V1:{tPeak:7.500,std:0.548,peakAmp:2.833},V2:{tPeak:7.295,std:0.550,peakAmp:2.273},V3:{tPeak:7.049,std:0.506,peakAmp:2.095},V4:{tPeak:6.382,std:1.963,peakAmp:2.248}},t2dm:{V1:{tPeak:7.209,std:0.860,peakAmp:2.640},V2:{tPeak:6.966,std:0.731,peakAmp:2.359},V3:{tPeak:6.740,std:0.784,peakAmp:2.094},V4:{tPeak:5.877,std:2.322,peakAmp:2.149}}};
+const ROI_CHART_COLORS={V1:'#00FFDD',V2:'#00FF88',V3:'#88FF44',V4:'#FFBB00'};
+const BRAIN_CTR=new THREE.Vector3(0,1.5,-1.5);
+const canvas=document.getElementById('c');
+const renderer=new THREE.WebGLRenderer({canvas,antialias:true,preserveDrawingBuffer:true});
+renderer.setPixelRatio(window.devicePixelRatio);
+renderer.setSize(window.innerWidth,window.innerHeight);
+renderer.setClearColor(0x000508,1);
+const scene=new THREE.Scene();
+scene.fog=new THREE.FogExp2(0x000508,0.015);
+const camera=new THREE.PerspectiveCamera(50,window.innerWidth/window.innerHeight,0.1,200);
+camera.position.set(0,4,26);
+const controls=new THREE.OrbitControls(camera,renderer.domElement);
+controls.target.copy(BRAIN_CTR);
+controls.enableDamping=true;
+controls.dampingFactor=0.08;
+controls.update();
+window.addEventListener('resize',()=>{camera.aspect=window.innerWidth/window.innerHeight;camera.updateProjectionMatrix();renderer.setSize(window.innerWidth,window.innerHeight);});
+
+function makeGlowTex(sz=64){
+  const c=document.createElement('canvas');c.width=c.height=sz;
+  const ctx=c.getContext('2d');
+  const g=ctx.createRadialGradient(sz/2,sz/2,0,sz/2,sz/2,sz/2);
+  g.addColorStop(0,'rgba(255,255,255,1)');g.addColorStop(0.3,'rgba(255,255,255,0.7)');
+  g.addColorStop(0.7,'rgba(255,255,255,0.15)');g.addColorStop(1,'rgba(0,0,0,0)');
+  ctx.fillStyle=g;ctx.fillRect(0,0,sz,sz);
+  return new THREE.CanvasTexture(c);
+}
+const GLOW_TEX=makeGlowTex(64);
+
+const ROI_GROUP_COLORS={V1:new THREE.Color(0x00FFDD),V2:new THREE.Color(0x00FF88),V3:new THREE.Color(0x88FF44),V4:new THREE.Color(0xFFCC00),other:new THREE.Color(0x224422)};
+const fiberSignals=[];
+const roiObjects={};
+
+function buildBrainCloud(data){
+  const N=data.meta.n_pts, raw=data.points;
+  const pos=new Float32Array(N*3), col=new Float32Array(N*3);
+  for(let i=0;i<N;i++){
+    const b=i*4;
+    pos[i*3]=raw[b];pos[i*3+1]=raw[b+1];pos[i*3+2]=raw[b+2];
+    const iv=raw[b+3];
+    col[i*3]=iv*0.04;col[i*3+1]=0.06+iv*0.22;col[i*3+2]=iv*0.08;
+  }
+  const geo=new THREE.BufferGeometry();
+  geo.setAttribute('position',new THREE.BufferAttribute(pos,3));
+  geo.setAttribute('color',new THREE.BufferAttribute(col,3));
+  const mat=new THREE.PointsMaterial({size:0.038,vertexColors:true,map:GLOW_TEX,alphaMap:GLOW_TEX,blending:THREE.AdditiveBlending,transparent:true,depthWrite:false,sizeAttenuation:true});
+  scene.add(new THREE.Points(geo,mat));
+}
+
+function buildSurfaceCloud(data){
+  const raw=data.mesh_verts, N=raw.length/3;
+  const pos=new Float32Array(raw.length), col=new Float32Array(raw.length);
+  for(let i=0;i<N;i++){
+    pos[i*3]=raw[i*3];pos[i*3+1]=raw[i*3+1];pos[i*3+2]=raw[i*3+2];
+    // Bright surface shell — clearly defines brain shape
+    col[i*3]=0.02;col[i*3+1]=0.55;col[i*3+2]=0.18;
+  }
+  const geo=new THREE.BufferGeometry();
+  geo.setAttribute('position',new THREE.BufferAttribute(pos,3));
+  geo.setAttribute('color',new THREE.BufferAttribute(col,3));
+  // Two layers: large dim + small bright for crisp shell edge
+  const matOuter=new THREE.PointsMaterial({size:0.13,vertexColors:true,map:GLOW_TEX,alphaMap:GLOW_TEX,blending:THREE.AdditiveBlending,transparent:true,depthWrite:false,sizeAttenuation:true,opacity:0.55});
+  scene.add(new THREE.Points(geo,matOuter));
+  const matInner=new THREE.PointsMaterial({size:0.055,vertexColors:true,map:GLOW_TEX,alphaMap:GLOW_TEX,blending:THREE.AdditiveBlending,transparent:true,depthWrite:false,sizeAttenuation:true,opacity:0.9});
+  const geo2=geo.clone();
+  scene.add(new THREE.Points(geo2,matInner));
+}
+
+function cubicBez(p0,cp1,cp2,p1,t){
+  const u=1-t,u2=u*u,u3=u2*u,t2=t*t,t3=t2*t;
+  return[u3*p0[0]+3*u2*t*cp1[0]+3*u*t2*cp2[0]+t3*p1[0],
+         u3*p0[1]+3*u2*t*cp1[1]+3*u*t2*cp2[1]+t3*p1[1],
+         u3*p0[2]+3*u2*t*cp1[2]+3*u*t2*cp2[2]+t3*p1[2]];
+}
+
+function buildFibers(data){
+  const SEG=12; // samples per animated signal segment
+  data.fibers.forEach(f=>{
+    // Dim static baseline fiber
+    const SAMP=40,bg=[];
+    for(let s=0;s<=SAMP;s++){const t=s/SAMP;const pt=cubicBez(f.p0,f.cp1,f.cp2,f.p1,t);bg.push(...pt);}
+    const bgeo=new THREE.BufferGeometry();
+    bgeo.setAttribute('position',new THREE.BufferAttribute(new Float32Array(bg),3));
+    scene.add(new THREE.Line(bgeo,new THREE.LineBasicMaterial({color:0x001a0c,transparent:true,opacity:0.25,blending:THREE.AdditiveBlending,depthWrite:false})));
+
+    // Sliding thin LINE segment — the actual signal wavefront (no billboard sprites)
+    const sigPos=new Float32Array(SEG*3);
+    const sigGeo=new THREE.BufferGeometry();
+    sigGeo.setAttribute('position',new THREE.BufferAttribute(sigPos,3));
+    // bright yellow-white : signals pop against dark brain
+    const sigMat=new THREE.LineBasicMaterial({color:0xFFFF99,transparent:true,opacity:0,blending:THREE.AdditiveBlending,depthWrite:false});
+    const sigLine=new THREE.Line(sigGeo,sigMat);
+    scene.add(sigLine);
+
+    fiberSignals.push({f,sigLine,sigMat,sigPos:sigGeo.attributes.position,SEG});
+  });
+}
+
+function buildROIs(data){
+  Object.entries(data.rois).forEach(([name,roi])=>{
+    const grp=roi.group;
+    const color=ROI_GROUP_COLORS[grp]||ROI_GROUP_COLORS.other;
+    const pos=roi.pos;
+    const cg=new THREE.SphereGeometry(0.07,8,8);
+    const cm=new THREE.MeshBasicMaterial({color,blending:THREE.AdditiveBlending,transparent:true,depthWrite:false});
+    const core=new THREE.Mesh(cg,cm);core.position.set(...pos);scene.add(core);
+    const sm=new THREE.SpriteMaterial({map:GLOW_TEX,color,blending:THREE.AdditiveBlending,transparent:true,depthWrite:false});
+    const sprite=new THREE.Sprite(sm);sprite.position.set(...pos);sprite.scale.setScalar(0.4);scene.add(sprite);
+    let div=null;
+    if(['V1','V2','V3','V4'].includes(grp)&&name.endsWith('R')){
+      div=document.createElement('div');
+      div.style.cssText='position:fixed;pointer-events:none;font-family:Courier New,monospace;font-size:11px;letter-spacing:2px;text-shadow:0 0 8px '+color.getStyle()+';padding:2px 4px;white-space:nowrap;color:'+color.getStyle();
+      div.textContent=grp;
+      document.getElementById('ui').appendChild(div);
+    }
+    roiObjects[name]={sprite,core,div,pos:new THREE.Vector3(...pos),group:grp,color};
+  });
+}
+
+function gaussHRF(t,tPeak,peakAmp,sigma){
+  if(t<0)return 0;
+  return Math.max(0,peakAmp*Math.exp(-0.5*Math.pow((t-tPeak)/sigma,2)));
+}
+
+function roiIntensity(name,simTime){
+  const arr=ARRIVALS[name]||0;
+  const grp=(brainData.rois[name]?.group)||'other';
+  const params=HRF_STATS[currentGroup]?.[grp];
+  const t=simTime-arr;
+  if(t<0)return 0;
+  if(params){
+    let jit=0;
+    if(currentGroup==='t2dm'&&grp==='V4')jit=Math.sin(simTime*2.3)*params.std*0.25;
+    return gaussHRF(t,params.tPeak+jit,params.peakAmp,params.std*1.5+0.8);
+  }
+  return gaussHRF(t,6.0,1.4,1.8);
+}
+
+function updateSignals(t){
+  const gCol=currentGroup==='young'?new THREE.Color(0x00E5FF):new THREE.Color(0xFF8C00);
+  fiberSignals.forEach(fs=>{
+    const f=fs.f;
+    const aS=ARRIVALS[f.src]??0, aD=ARRIVALS[f.dst]??(aS+2.0);
+    const trav=Math.max(1.0,aD-aS);
+    const el=t-aS;
+    const prog=Math.max(0,Math.min(1,el/trav));
+    if(el<0||el>trav+trav*0.3){fs.sigMat.opacity=0;return;}
+    const bri=Math.sin(Math.min(prog,1)*Math.PI);
+    // Very narrow window — sharp wavefront mimicking single BOLD impulse
+    const WIN=0.035;
+    const headP=prog;
+    const tailP=Math.max(0,prog-WIN);
+    for(let i=0;i<fs.SEG;i++){
+      const p=tailP+(headP-tailP)*(i/(fs.SEG-1));
+      const pt=cubicBez(f.p0,f.cp1,f.cp2,f.p1,Math.min(p,1));
+      fs.sigPos.setXYZ(i,pt[0],pt[1],pt[2]);
+    }
+    fs.sigPos.needsUpdate=true;
+    // group color tint on base, but keep yellow luminance for thin line visibility
+    const mixCol=currentGroup==='young'?new THREE.Color(0xCCFFFF):new THREE.Color(0xFFDD88);
+    fs.sigMat.color=mixCol;fs.sigMat.opacity=bri*0.98;
+  });
+}
+
+function updateROIs(t){
+  const half=window.innerWidth/2, hvh=window.innerHeight/2;
+  const gCol=currentGroup==='young'?new THREE.Color(0x00E5FF):new THREE.Color(0xFF8C00);
+  Object.entries(roiObjects).forEach(([name,obj])=>{
+    const iv=roiIntensity(name,t);
+    const grp=obj.group;
+    let col;
+    if(['V1','V2','V3','V4'].includes(grp))col=new THREE.Color().lerpColors(ROI_GROUP_COLORS[grp],gCol,iv*0.5);
+    else col=ROI_GROUP_COLORS.other.clone();
+    const sc=Math.min(1,iv/3.0);const gw=sc*sc;
+    obj.sprite.scale.setScalar(0.35+gw*1.4);obj.sprite.material.opacity=0.15+gw*0.85;obj.sprite.material.color.set(col);
+    obj.core.material.opacity=0.3+gw*0.7;obj.core.scale.setScalar(0.5+gw*2.5);
+    if(obj.div){
+      const v3=obj.pos.clone().project(camera);
+      obj.div.style.left=((v3.x+1)*half+10)+'px';
+      obj.div.style.top=((-v3.y+1)*hvh-8)+'px';
+      obj.div.style.opacity=(0.4+gw*0.6).toFixed(3);
+    }
+  });
+}
+
+function drawHRFChart(t){
+  const hc=document.getElementById('hrf-canvas');
+  const ctx=hc.getContext('2d');
+  const W=hc.width, H=hc.height;
+  ctx.clearRect(0,0,W,H);
+  ctx.strokeStyle='#001a0e';ctx.lineWidth=1;
+  for(let x=0;x<=W;x+=W/6){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,H);ctx.stroke();}
+  for(let y=0;y<=H;y+=H/4){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(W,y);ctx.stroke();}
+  const tMax=20, s=HRF_STATS[currentGroup];
+  ['V1','V2','V3','V4'].forEach(roi=>{
+    const p=s[roi];
+    ctx.beginPath();ctx.strokeStyle=ROI_CHART_COLORS[roi];ctx.lineWidth=1.5;
+    for(let px=0;px<W;px++){
+      const tv=px*(tMax/W);
+      const iv=gaussHRF(tv,p.tPeak,p.peakAmp,p.std*1.5+0.8);
+      const y=H-(iv/4.0)*H*0.85-2;
+      if(px===0)ctx.moveTo(px,y);else ctx.lineTo(px,y);
+    }
+    ctx.stroke();
+  });
+  const cx=(t/tMax)*W;
+  ctx.strokeStyle='#FFFFFF33';ctx.lineWidth=1;ctx.setLineDash([3,3]);
+  ctx.beginPath();ctx.moveTo(cx%W,0);ctx.lineTo(cx%W,H);ctx.stroke();
+  ctx.setLineDash([]);
+}
+
+function updateROITable(){
+  const table=document.getElementById('roi-table');
+  const ys=HRF_STATS.young, s=HRF_STATS[currentGroup];
+  while(table.rows.length>1)table.deleteRow(1);
+  ['V1','V2','V3','V4'].forEach(roi=>{
+    const p=s[roi], d=(p.tPeak-ys[roi].tPeak).toFixed(2);
+    const row=table.insertRow();
+    row.innerHTML='<td style="color:'+ROI_CHART_COLORS[roi]+'">'+roi+'</td><td style="color:#00FF88;font-weight:bold">'+p.tPeak.toFixed(3)+'s</td><td style="color:#FF8C0088">+/-'+p.std.toFixed(3)+'</td><td style="color:'+(parseFloat(d)<0?'#FF6666':'#66FF66')+'">'+(d>0?'+':'')+d+'s</td>';
+  });
+}
+
+function togglePlay(){
+  paused=!paused;
+  document.getElementById('playBtn').innerHTML=paused?'&#9654; PLAY':'&#9646;&#9646; PAUSE';
+}
+function onScrub(val){
+  scrubbing=true; paused=true;
+  brainSim=parseFloat(val);
+  document.getElementById('playBtn').innerHTML='&#9654; PLAY';
+  document.getElementById('timeVal').textContent=parseFloat(val).toFixed(1)+'s';
+}
+function buildTickRow(){
+  const row=document.getElementById('tick-row');
+  if(!row)return;
+  const tMax=SIM_PERIOD;
+  const marks=[
+    {t:0,label:'0s'},{t:2,label:'V1'},{t:3.5,label:'V2'},
+    {t:5,label:'V3'},{t:7,label:'V4'},{t:8.5,label:'FFA'},
+    {t:14,label:'tPeak'},{t:SIM_PERIOD,label:SIM_PERIOD+'s'}
+  ];
+  marks.forEach(m=>{
+    const d=document.createElement('div');
+    d.className='tick-label';
+    d.style.left=(m.t/tMax*100)+'%';
+    d.textContent=m.label;
+    row.appendChild(d);
+  });
+}
+function setGroup(g){
+  currentGroup=g;
+  document.querySelectorAll('.grp-btn').forEach(b=>b.classList.remove('active'));
+  document.querySelector('.grp-btn.'+g).classList.add('active');
+  updateROITable();
+}
+function setHeroView(){camera.position.set(5,5,22);controls.target.copy(BRAIN_CTR);controls.update();}
+function toggleDemo(){
+  demoActive=!demoActive;
+  paused=false;
+  document.getElementById('demoBtn').classList.toggle('active',demoActive);
+  document.getElementById('playBtn').innerHTML='&#9646;&#9646; PAUSE';
+  simSpeed=demoActive?0.12:0.18;
+  document.getElementById('speedSlider').value=simSpeed;
+  document.getElementById('speedVal').textContent=simSpeed.toFixed(2)+'x';
+  if(demoActive){brainSim=0;}  // restart from t=0
+}
+function savePNG(){renderer.render(scene,camera);const a=document.createElement('a');a.download='hrf_'+currentGroup+'_'+Date.now()+'.png';a.href=canvas.toDataURL('image/png');a.click();}
+
+// ── Proper brain mesh: glass fill + backface-extrusion outline ──────────────
+function buildBrainMesh(data){
+  if(!data.mesh_faces||!data.mesh_normals) return null;
+  const vRaw=data.mesh_verts, nRaw=data.mesh_normals, fRaw=data.mesh_faces;
+  const geo=new THREE.BufferGeometry();
+  geo.setAttribute('position',new THREE.BufferAttribute(new Float32Array(vRaw),3));
+  geo.setAttribute('normal',new THREE.BufferAttribute(new Float32Array(nRaw),3));
+  geo.setIndex(new THREE.BufferAttribute(new Uint32Array(fRaw),1));
+  geo.computeBoundingSphere();
+
+  // Subtle inner fill (back faces) — shows brain depth
+  const matFill=new THREE.MeshBasicMaterial({
+    color:0x003322,transparent:true,opacity:0.015,
+    side:THREE.BackSide,depthWrite:false,blending:THREE.AdditiveBlending
+  });
+  scene.add(new THREE.Mesh(geo,matFill));
+
+  // Outline pass: push BackSide verts along normal → clean white rim at silhouette
+  const matOut=new THREE.ShaderMaterial({
+    uniforms:{uThk:{value:0.032}},
+    vertexShader:`
+      uniform float uThk;
+      void main(){
+        vec3 p=position+normal*uThk;
+        gl_Position=projectionMatrix*modelViewMatrix*vec4(p,1.0);
+      }
+    `,
+    fragmentShader:`
+      void main(){ gl_FragColor=vec4(1.0,1.0,1.0,0.055); }
+    `,
+    side:THREE.BackSide,transparent:true,depthWrite:false,
+    blending:THREE.AdditiveBlending
+  });
+  const outMesh=new THREE.Mesh(geo.clone(),matOut);
+  scene.add(outMesh);
+  return outMesh;
+}
+
+let lastT=0, brainSim=0;
+function animate(now){
+  requestAnimationFrame(animate);
+  const dt=Math.min((now-lastT)/1000,0.05);lastT=now;
+  if(!paused) brainSim+=dt*simSpeed;
+  const t=brainSim%SIM_PERIOD;
+  // Sync timeline slider
+  const slider=document.getElementById('timeSlider');
+  const tvEl=document.getElementById('timeVal');
+  if(slider&&!paused){slider.value=t.toFixed(2);tvEl.textContent=t.toFixed(1)+'s';}
+  updateSignals(t);updateROIs(t);drawHRFChart(t);
+  controls.update();
+  if(brainOutline&&brainOutline.material.uniforms&&brainOutline.material.uniforms.uCamPos)
+    brainOutline.material.uniforms.uCamPos.value.copy(camera.position);
+  renderer.render(scene,camera);
+}
+
+async function init(){
+  const load=document.createElement('div');
+  load.style.cssText='position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);color:#00FF88;font-family:Courier New,monospace;font-size:13px;letter-spacing:3px;text-align:center;pointer-events:none;z-index:999';
+  load.innerHTML='LOADING NEURAL DATA...<br><span style="color:#003322;font-size:10px">brain_data.json (1.6 MB)</span>';
+  document.body.appendChild(load);
+  try{
+    brainData=await fetch('brain_data.json').then(r=>r.json());
+    load.remove();
+  }catch(e){
+    load.innerHTML='<span style="color:#FF4444">ERROR: brain_data.json not found<br>Run dataset/extract_brain_mesh.py first</span>';
+    return;
+  }
+  buildBrainCloud(brainData);
+  buildSurfaceCloud(brainData);
+  buildFibers(brainData);
+  buildROIs(brainData);
+  brainOutline=buildBrainMesh(brainData);
+  updateROITable();
+  buildTickRow();
+  requestAnimationFrame(t=>{lastT=t;requestAnimationFrame(animate);});
+}
+init();
+</script>
+</body>
+</html>
