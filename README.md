@@ -1,73 +1,108 @@
 # Spatiotemporal Visualization of Hemodynamic Decay in the Visual Cortex
 
-A real-time 3D visualization system that renders how neural signal propagation degrades along the ventral visual stream (V1 → V2 → V3 → hV4) in subjects with Type 2 Diabetes Mellitus (T2DM) and aging, compared to healthy young controls.
+Real-time 3D WebGL visualization encoding neurovascular coupling degradation along the ventral visual stream (V1 → V4) in Type 2 Diabetes Mellitus (T2DM) versus healthy young controls, driven by subject-specific HRF parameters from 33 clinical fMRI subjects.
 
 ---
 
-## What This Project Does
+## Quick Start - open the visualization
 
-### 1. HRF Parameter Extraction (`dataset/`)
+`brain_data.json` is already precomputed and included. No Python or MATLAB needed to view it.
 
-Parses subject-specific fMRI `.mat` files (N = 33) using MATLAB-fitted **7-parameter Double-Gamma HRF models**. For each subject and each visual ROI (V1–V4), the pipeline extracts:
+```bash
+cd viz
+npx serve .
+# Open http://localhost:3000/glass_brain.html in Chrome or Edge
+```
 
-| Parameter        | Meaning                                    |
-| ---------------- | ------------------------------------------ |
-| `p1`, `q1`, `a1` | Positive BOLD lobe shape and amplitude     |
-| `p2`, `q2`, `a2` | Undershoot shape and amplitude             |
-| `c` / `dt`       | Hemodynamic offset — the propagation delay |
-
-Clinical groups:
-
-- **Young Controls** — SUB701–SUB722 (n = 11)
-- **T2DM / Older** — remaining subjects (n = 22)
-
-Outputs a single validated JSON file (`viz/brain_data.json`) containing group statistics, per-ROI parameters, MNI coordinates, and a brain surface mesh.
+> **Note:** Must be served via HTTP (not `file://`) due to browser CORS restrictions on JSON loading.
 
 ---
 
-### 2. Brain Surface Mesh Extraction (`dataset/extract_brain_mesh.py`)
+## Prerequisites
 
-Loads a real ASL-fMRI NIfTI volume, applies a signal-percentile brain mask, runs **Marching Cubes** to produce a cortical surface mesh, and exports:
+### To view only
 
-- `mesh_verts` + `mesh_normals` — surface geometry with proper normals for silhouette rendering
-- `mesh_faces` — triangle indices enabling solid-mesh rendering in WebGL
-- 60 k interior voxel point cloud for volumetric context
+| Requirement    | Version    |
+| -------------- | ---------- |
+| Node.js        | 18+        |
+| Chrome or Edge | any recent |
 
-ROI positions follow the **Benson 2014 retinotopic atlas** (Wandell & Winawer 2011; Larsson & Heeger 2006) for anatomically accurate placement of V1–hV4.
+```bash
+npm install -g serve   # one-time global install
+```
+
+### To capture hero images (optional)
+
+```bash
+cd _screenshot
+npm install            # installs puppeteer locally
+```
+
+### To regenerate `brain_data.json` from raw fMRI (optional)
+
+Requires the raw NIfTI + `.mat` files in `data_bak/`.
+
+```bash
+pip install nibabel scikit-image scipy numpy
+cd dataset
+python extract_brain_mesh.py
+```
 
 ---
 
-### 3. Real-Time 3D WebGL Renderer (`viz/glass_brain.html`)
+## Usage
 
-A single-file, zero-dependency browser application that:
+### View the visualization
 
-- Renders the brain as a **glass-brain mesh** (backface-extrusion outline silhouette) that updates automatically as the camera rotates
-- Animates **sliding signal wavefronts** along subject-specific fiber paths (Bézier curves, Force-Directed Edge Bundling style), with wavefront width and brightness driven by the Double-Gamma HRF curve in real time
-- Encodes group differences visually:
-  - **Young group** — cold cyan signals, tight wavefronts
-  - **T2DM / Old group** — warm amber signals, spatially diffused wavefronts reflecting higher variance
-- Displays per-ROI `t_peak`, `σ`, and Δ vs. Young in a live analytics panel
-- Plots all four ROI HRF waveforms simultaneously in a mini chart synchronized to the simulation clock
-- Supports interactive scrubbing, speed control, and PNG export
+```bash
+cd viz
+npx serve .
+```
+
+Open `http://localhost:3000/glass_brain.html`.
+
+- Toggle **YOUNG (n=11)** / **T2DM / OLD (n=22)** buttons to switch groups
+- Drag to rotate, scroll to zoom
+- Use the timeline scrubber or **PEAK DEMO** to animate the HRF wavefront
+
+### Capture images
+
+```bash
+cd _screenshot
+node capture_young.js   # → viz/hero_young.png
+node capture_t2dm.js    # → viz/hero_t2dm.png
+```
+
+---
+
+## What the visualization encodes
+
+Three simultaneous visual channels map real HRF parameters to perception:
+
+| Channel             | Young Controls          | T2DM / Old                 |
+| ------------------- | ----------------------- | -------------------------- |
+| **Wavefront width** | Narrow — tight coupling | 3× wider — diffuse         |
+| **Glow radius**     | Compact (low σ)         | Expanded ∝ inter-subject σ |
+| **Luminance**       | Reference amplitude     | Dimmer ∝ BOLD attenuation  |
+
+Key findings from the data:
+
+- V4 `t_peak` compresses by **−505 ms** in T2DM (earlier, shorter BOLD response)
+- V1 inter-subject variance elevated **+57%** in T2DM
+- V4 absolute σ is **4.3×** the V1–V3 mean — rendered as the largest, most jittered glow
 
 ---
 
 ## Data Flow
 
 ```
-SUB7xx_hrf.mat  →  extract_hrf_json.py  →  hrf_master_data.json
-ASL .nii        →  extract_brain_mesh.py →  brain_data.json
-                                                    ↓
-                                         glass_brain.html  (WebGL)
+SUB7xx_hrf.mat       → extract_hrf_json.py   → hrf_master_data.json  ─┐
+ASL .nii (data_bak/) → extract_brain_mesh.py → brain_data.json  ←──────┘
+                                                       ↓
+                                            glass_brain.html  (WebGL)
 ```
 
----
-
-## Key Visualized Findings
-
-- **Sequential delay cascade**: `t_peak` decreases monotonically V1 → V4 in both groups, consistent with feedforward propagation
-- **T2DM delay shift**: each ROI shows an earlier but lower-amplitude peak, suggesting microvascular disruption shortening the BOLD response
-- **V4 instability**: T2DM group V4 standard deviation (σ ≈ 2.32 s) is 4× that of Young Controls (σ ≈ 0.55 s), rendered as diffused wavefront jitter
+`brain_data.json` (precomputed, ~1.8 MB) contains the brain mesh, ROI positions, fiber paths, and HRF statistics. The renderer reads this file directly — no server-side computation.
 
 ---
 
@@ -75,49 +110,38 @@ ASL .nii        →  extract_brain_mesh.py →  brain_data.json
 
 | Layer           | Technology                                                   |
 | --------------- | ------------------------------------------------------------ |
-| Data extraction | Python — `nibabel`, `scikit-image` (Marching Cubes), `scipy` |
-| HRF fitting     | MATLAB (`step10_fitting.m`)                                  |
+| HRF fitting     | MATLAB — 7-parameter Double-Gamma nonlinear least squares    |
+| Mesh extraction | Python — `nibabel`, `scikit-image` (Marching Cubes), `scipy` |
 | Renderer        | Three.js r128, WebGL 2, custom GLSL shaders                  |
-| Capture         | Puppeteer (headless Chromium)                                |
-
----
-
-## Running Locally
-
-```bash
-# 1. Regenerate brain_data.json (requires fMRI data in data_bak/)
-cd dataset
-python extract_brain_mesh.py
-
-# 2. Open the visualization (needs a local HTTP server — CORS)
-cd viz
-npx serve .
-# or any static file server, then open http://localhost:PORT/glass_brain.html
-
-# 3. Capture hero images
-cd _screenshot
-npm install
-node capture_t2dm.js
-```
+| Image capture   | Puppeteer (non-headless Chromium, real GPU)                  |
 
 ---
 
 ## File Structure
 
 ```
-dataset/
-  extract_brain_mesh.py   — NIfTI → brain mesh + ROI JSON
-  extract_hrf_json.py     — .mat → HRF parameter JSON
-  step10_fitting.m        — MATLAB Double-Gamma fitting
-  SUB*_hrf.mat            — per-subject fitted HRF parameters
-
 viz/
-  glass_brain.html        — main WebGL visualization
-  comparison.html         — side-by-side group comparison view
-  brain_data.json         — precomputed scene data (mesh + ROIs + fibers)
-  hero_young.png          — Young Controls render
-  hero_t2dm.png           — T2DM / Old render
+  glass_brain.html          — main WebGL visualization (single file, zero CDN deps)
+  comparison.html           — side-by-side group comparison view
+  brain_data.json           — precomputed scene data (mesh + ROIs + fibers + HRF stats)
+  hero_young.png/jpg        — Young Controls render
+  hero_t2dm.png             — T2DM / Old render
+  representative_image.jpg  — SIGGRAPH submission image
+
+dataset/
+  extract_brain_mesh.py     — NIfTI → cortical mesh + point cloud + ROI JSON
+  extract_hrf_json.py       — .mat → HRF parameter JSON
+  step10_fitting.m          — MATLAB Double-Gamma fitting pipeline
+  hrf_master_data.json      — intermediate HRF stats per subject
+  SUB*_hrf.mat              — per-subject fitted HRF parameters
 
 _screenshot/
-  capture_t2dm.js         — Puppeteer automated capture script
+  capture_young.js          — Puppeteer capture → hero_young.png
+  capture_t2dm.js           — Puppeteer capture → hero_t2dm.png
+  capture_repimg.js         — Puppeteer capture → representative_image.jpg
+  package.json              — puppeteer dependency
+
+abstract/
+  siggraph2026_src.tex      — SIGGRAPH 2026 Posters extended abstract (LaTeX)
+  refs.bib                  — BibTeX references
 ```
